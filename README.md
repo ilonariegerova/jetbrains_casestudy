@@ -8,25 +8,37 @@ Used technology: AWS - Free tier, SQLServer, Excel, PowerBI
 
 ## Task 1: Data quality – the difference between NetSuite ERP and payment gateway
 ### Workflow description
-The task was to transform given CSV files into queriable table and perform analysis of differences between these CSV files and `[dea].[netsuite].[TRANSACTION_LINES]` table. There are more way I could think of to approach this. They differ in complexity and suitability. 
+The task was to transform given CSV files into queriable table in SQL Server and perform analysis on differences between said table and `[dea].[netsuite].[TRANSACTION_LINES]`. A list of all differences on transactional level was supposed to be delivered.
 
-- CSV files directly in SQL Server: 
+There are more ways I could think of to approach this. They differ in complexity and suitability. 
+
+1. CSV files directly in SQL Server: 
   - assumption: CSV files have uniform and correct formatting - no ETL needed
-  - easiest option leveraging SQL Server Import Wizard / Bulk Insert
-  - produces unnecesary amount of tables - table for each csv file which then have to be unioned onto one
-  - no scripting needed, minimal effort and setup
-- CSV files in S3 + AWS Glue
-  - assumption: no heavy ETL needed, CSV files have uniform and correct formatting
-  - one-time or irregular load, small amount of data
-  - leverages AWS Glue to extract data from S3, ETL and load into another S3 bucket using Athena, then load into SQL Server via Import Wizard/Bulk Insert
-  - more real-case approach, leverages AWS storage, some configuration and setup needed
-- CSV files in S3 + AWS Glue + Python for ETL
-  - assumption: heavy ETL needed to be performed both on CSV formatting and data itself
-  - comprehensive solution suited for regular load of big amount of data - complex pipeline
-  - using AWS Glue with Python script to perform heavy ETL on the data, setting up Athena linked server to SQL Server 
-  - requires the most setup and work, however robust and reusable solution 
+  - **pros:** easiest option leveraging SQL Server Import Wizard / Bulk Insert, no scripting needed, minimal effort and setup of architecture/sw
+  - **cons:** produces unnecesary amount of tables - table for each csv file which then have to be unioned onto one, no cost or optimization considered, not scalable, efficient or elegant
 
-I decided to go with the second option. The CSV files were ready to be used as they were and there was no need to prepare over-kill solution. I wanted to get myself familiar with AWS as I am a GCP developer. Also first option is pretty ugly so that is why I didn't go with the first option. 
+2. CSV files in S3 + AWS Glue
+  - assumption: CSV files have uniform and correct formatting, no heavy ETL needed
+  - more real-case approach, usable for one-time or irregular load, small amount of data
+  - **pros:** leverages AWS storage and AWS Glue functionality, Glue and Athena are cost-effective for smaller amounts of data
+  - **cons:** not robust and complex enough for handling data quality, reusability or automation
+
+3. CSV files in S3 + AWS Glue + Full Scope Solution
+  - assumption: heavy ETL needed to be performed both on CSV formatting and data itself, large dataset, automatization of pipeline
+  - comprehensive solution suited for regular load of big amounts of data - complex pipeline
+  - princip: using AWS Glue with Python script to perform heavy ETL on the data; setting up Athena linked server to SQL Server or using Redshift; adding explicit validations, error handling and logging along the way to promote robustness, using AWS Step Functions / Airflow for orchestration 
+  - **pros:** robust, scalable, reusable solution for real-case problem
+  - **cons:** requires the most setup and work
+
+Data quality and validations have to be considered to make all of these options work. Let's highlight a few:
+  - CSV formatting: UTF-8 encoding, LF endings, delimiter consistency
+  - data handling: NULL values, duplicities, inconsistent data types
+  - validations: count checks, value ranges
+  - monitoring and logging
+  - alerting in case of fails
+
+I decided to go with the second option. The CSV files were ready to be used as they were and there was no need to prepare over-kill solution as is proposed by the third option. First option may be functional, however, it is insufficient on many stages.  Also I wanted to get myself familiar with AWS as I am a GCP developer. So getting to use another Cloud Platform was a challenge.
+
 
 ### Workflow:
 Use AWS Glue to extract and transform the data from CSV files into S3: 
@@ -34,7 +46,7 @@ Use AWS Glue to extract and transform the data from CSV files into S3:
   - uploaded CSV files to bucket, folder csv_files
   - created Glue (GlueETLRole) IAM Role - AmazonS3ReadOnlyAccess, CloudWatchLogsFullAccess, AWSGlueServiceRole
   - created database casestudy-jb-db
-  - created classifier (semicolon_csv_classsifier) - to ensure correct parsing of data; complicated formatting issues can be reprocessed with Python script
+  - created classifier (semicolon_csv_classsifier) - to ensure correct parsing of data
 
 ```
 {
@@ -73,9 +85,8 @@ Use AWS Glue to extract and transform the data from CSV files into S3:
 }
 ```
 
-  - created Crawler (CSVCrawler) to create unioned table (csv_files) based on CSV files
+  - created Crawler (CSVCrawler) to get unioned table (csv_files) based on CSV files that is queriable in Athena
 
-Crawler configuration:
 ```
 {
     "Crawler": {
@@ -137,7 +148,7 @@ Check data and save it back to S3 in a processed format:
   - data parsing
   - data values
   - row counts in line with csv files
-  - gross and Payment GW produces same numbers for split by merchant and batch_number
+  - gross and Payment Gateway produces same numbers for split by merchant_account and batch_number
   - use Athena to save query result into bucket (export_csv): `SELECT * FROM csv_files;`
 
 Load table into SQL Server:
@@ -163,7 +174,9 @@ CREATE TABLE settlement_reports (
   - imported data via Import Wizard
 
 ### Analysis
-Differences between the two data sources were probably caused by the migration. There are some missing transactions in Netsuite for `JetBrainsEUR, batch_number IN (138, 139)` and `JetBrainsGBP, batch_number = 141`. There are some transactions in Netsuite missing batch_number (NULL) - `JetBrainsAmericasUSD, batch_number IN (139, 141)`. And there are even some differences caused by different transaction_date - `JetBrainsEUR, bacth_number = 140`. These were not visible by merchant and batch_number split. 
+Differences between the two data sources were probably caused by the migration or full automatization of the process.
+
+There are some missing transactions in Netsuite for `JetBrainsEUR, batch_number IN (138, 139)` and `JetBrainsGBP, batch_number = 141`. There are some transactions in Netsuite missing batch_number (NULL) - `JetBrainsAmericasUSD, batch_number IN (139, 141)`. And there are even some differences caused by different transaction_date - `JetBrainsEUR, bacth_number = 140`. These were not visible by merchant and batch_number split provided in the task specification. 
 
 |Merchant Account|Batch Number|NetSuite|Payment Gateway|
 | ------------- | ------ | ------ | ------ |
@@ -174,115 +187,7 @@ Differences between the two data sources were probably caused by the migration. 
 |JetBrainsEUR|140|13,268,388|13,268,388|
 |JetBrainsGBP|141|0|1,021,258|
 
-
-To replicate comparison table by Merchant ID and Batch Number:
-```
-SELECT COALESCE(sr.MERCHANT_ACCOUNT, ns.MERCHANT_ACCOUNT) AS MERCHANT_ACCOUNT,
-       COALESCE(sr.BATCH_NUMBER, ns.BATCH_NUMBER) AS BATCH_NUMBER,
-	   COALESCE(ns.AMOUNT_FOREIGN, 0) AS NetSuite,
-	   COALESCE(sr.PAYMENT_GATEWAY, 0) AS PAYMENT_GATEWAY,
-	   COALESCE(ns.AMOUNT_FOREIGN, 0) - COALESCE(sr.PAYMENT_GATEWAY, 0) AS difference
-FROM 
-   (
-        SELECT merchant_account AS MERCHANT_ACCOUNT
-              ,batch_number AS BATCH_NUMBER
-        	  ,SUM(gross) AS PAYMENT_GATEWAY
-	    FROM [dbfour].[dbo].[settlement_reports]
-        GROUP BY merchant_account
-                ,batch_number
-    ) sr
-FULL JOIN
-    (
-        SELECT trs.MERCHANT_ACCOUNT
-              ,trs.BATCH_NUMBER
-              ,SUM(trl.AMOUNT_FOREIGN) AS AMOUNT_FOREIGN
-        FROM [dea].[netsuite].[TRANSACTION_LINES] trl
-              LEFT JOIN [dea].[netsuite].[ACCOUNTS] acc ON acc.ACCOUNT_ID = trl.ACCOUNT_ID
-              LEFT JOIN [dea].[netsuite].[TRANSACTIONS] trs ON trs.TRANSACTION_ID = trl.TRANSACTION_ID
-              LEFT JOIN [dea].[netsuite].[SUBSIDIARIES] sub ON sub.SUBSIDIARY_ID = trl.SUBSIDIARY_ID
-              LEFT JOIN [dea].[netsuite].[CURRENCIES] cur ON cur.CURRENCY_ID = trs.CURRENCY_ID
-              WHERE acc.ACCOUNTNUMBER IN ('315700', '315710', '315720', '315800', '548201')
-        GROUP BY trs.MERCHANT_ACCOUNT
-                ,trs.BATCH_NUMBER
-    ) ns
-ON sr.merchant_account = ns.MERCHANT_ACCOUNT
-  AND sr.batch_number = ns.BATCH_NUMBER
-ORDER BY 1, 2;
-```
-  
-To see the differences only:
-```
-SELECT COALESCE(ns.MERCHANT_ACCOUNT, sr.MERCHANT_ACCOUNT) AS MERCHANT_ACCOUNT
-      ,COALESCE(sr.BATCH_NUMBER, ns.BATCH_NUMBER) AS BATCH_NUMBER
-      ,SUM(COALESCE(ns.AMOUNT_FOREIGN, 0)) AS NETSUITE
-      ,SUM(COALESCE(sr.PAYMENT_GATEWAY, 0)) AS PAYMENT_GATEWAY
-FROM 
-    (
-        SELECT trl.TRANSACTION_ID
-              ,trl.AMOUNT_FOREIGN
-              ,acc.NAME AS ACCOUNT_NAME
-              ,trs.TRANSACTION_TYPE
-              ,trs.TRANDATE AS TRANDATE
-              ,trs.ORDER_REF
-              ,trs.MERCHANT_ACCOUNT
-              ,trs.BATCH_NUMBER
-              ,sub.NAME AS SUBS_NAME
-              ,cur.SYMBOL AS CURRENCY
-        FROM [dea].[netsuite].[TRANSACTION_LINES] trl
-        LEFT JOIN [dea].[netsuite].[ACCOUNTS] acc ON acc.ACCOUNT_ID = trl.ACCOUNT_ID
-        LEFT JOIN [dea].[netsuite].[TRANSACTIONS] trs ON trs.TRANSACTION_ID = trl.TRANSACTION_ID
-        LEFT JOIN [dea].[netsuite].[SUBSIDIARIES] sub ON sub.SUBSIDIARY_ID = trl.SUBSIDIARY_ID
-        LEFT JOIN [dea].[netsuite].[CURRENCIES] cur ON cur.CURRENCY_ID = trs.CURRENCY_ID
-        WHERE acc.ACCOUNTNUMBER IN ('315700', '315710', '315720', '315800', '548201')
-    ) ns
-FULL JOIN 
-    (
-        SELECT merchant_account AS MERCHANT_ACCOUNT
-              ,batch_number AS BATCH_NUMBER
-              ,order_ref AS ORDER_REF
-              ,payment_method AS PAYMENT_METHOD
-              ,date AS TRANDATE
-              ,type AS TRANSACTION_TYPE
-              ,currency AS CURRENCY
-              ,CONCAT('JBCZ: Receivables against ADYEN-', currency) AS ACCOUNT_NAME
-              ,NET AS PAYMENT_GATEWAY
-        FROM [dbfour].[dbo].[settlement_reports]
-
-        UNION ALL
-
-        SELECT merchant_account AS MERCHANT_ACCOUNT
-              ,batch_number AS BATCH_NUMBER
-              ,order_ref AS ORDER_REF
-              ,payment_method AS PAYMENT_METHOD
-              ,date AS TRANDATE
-              ,type AS TRANSACTION_TYPE
-              ,currency AS CURRENCY
-              ,'Other operating costs' AS ACCOUNT_NAME
-              ,fee AS PAYMENT_GATEWAY
-        FROM [dbfour].[dbo].[settlement_reports]
-    ) sr
-    ON ns.ORDER_REF = sr.ORDER_REF
-    AND ns.TRANDATE = sr.TRANDATE -- can be commented out
-    AND ns.ACCOUNT_NAME = sr.ACCOUNT_NAME
-    AND ns.AMOUNT_FOREIGN = sr.PAYMENT_GATEWAY
-WHERE ns.BATCH_NUMBER IS NULL OR sr.BATCH_NUMBER IS NULL
-GROUP BY COALESCE(ns.MERCHANT_ACCOUNT, sr.MERCHANT_ACCOUNT)
-      ,COALESCE(sr.BATCH_NUMBER, ns.BATCH_NUMBER)
-ORDER BY 1, 2;
-```
-
-Or using created table:
-```
-SELECT COALESCE(NETSUITE_MERCHANT_ACCOUNT, SETREP_MERCHANT_ACCOUNT) AS MERCHANT_ACCOUNT
-      ,COALESCE(SETREP_BATCH_NUMBER, NETSUITE_BATCH_NUMBER) AS BATCH_NUMBER
-      ,SUM(COALESCE(NETSUITE_AMOUNT_FOREIGN, 0)) AS NETSUITE
-      ,SUM(COALESCE(SETREP_PAYMENT_GATEWAY, 0)) AS PAYMENT_GATEWAY
-FROM [dbo].[netsuite_reports_diffs]
-GROUP BY COALESCE(NETSUITE_MERCHANT_ACCOUNT, SETREP_MERCHANT_ACCOUNT)
-      ,COALESCE(SETREP_BATCH_NUMBER, NETSUITE_BATCH_NUMBER)
-```
-
-Used script to create table `netsuite_reports_diffs`:
+List of all differences on transaction-level in stored in `netsuite_reports_diffs` table. It was created by following scripts:
 ```
 CREATE TABLE dbo.netsuite_reports_diffs (
     TRANSACTION_ID VARCHAR(50),
@@ -396,15 +301,140 @@ FULL JOIN
 WHERE ns.BATCH_NUMBER IS NULL OR sr.BATCH_NUMBER IS NULL;
 ```
 
+### Sample Queries
+To replicate comparison table by Merchant ID and Batch Number:
+```
+SELECT COALESCE(sr.MERCHANT_ACCOUNT, ns.MERCHANT_ACCOUNT) AS MERCHANT_ACCOUNT,
+       COALESCE(sr.BATCH_NUMBER, ns.BATCH_NUMBER) AS BATCH_NUMBER,
+       COALESCE(ns.AMOUNT_FOREIGN, 0) AS NetSuite,
+       COALESCE(sr.PAYMENT_GATEWAY, 0) AS PAYMENT_GATEWAY,
+       COALESCE(ns.AMOUNT_FOREIGN, 0) - COALESCE(sr.PAYMENT_GATEWAY, 0) AS difference
+FROM 
+   (--Settlement Reports part
+      SELECT merchant_account AS MERCHANT_ACCOUNT
+            ,batch_number AS BATCH_NUMBER
+            ,SUM(gross) AS PAYMENT_GATEWAY
+      FROM [dbfour].[dbo].[settlement_reports] -- exported table based on CSV files
+      GROUP BY merchant_account
+              ,batch_number
+    ) sr
+FULL JOIN
+    (--NetSuite part
+      SELECT trs.MERCHANT_ACCOUNT
+            ,trs.BATCH_NUMBER
+            ,SUM(trl.AMOUNT_FOREIGN) AS AMOUNT_FOREIGN
+      FROM [dea].[netsuite].[TRANSACTION_LINES] trl
+      LEFT JOIN [dea].[netsuite].[ACCOUNTS] acc ON acc.ACCOUNT_ID = trl.ACCOUNT_ID
+      LEFT JOIN [dea].[netsuite].[TRANSACTIONS] trs ON trs.TRANSACTION_ID = trl.TRANSACTION_ID
+      LEFT JOIN [dea].[netsuite].[SUBSIDIARIES] sub ON sub.SUBSIDIARY_ID = trl.SUBSIDIARY_ID
+      LEFT JOIN [dea].[netsuite].[CURRENCIES] cur ON cur.CURRENCY_ID = trs.CURRENCY_ID
+      WHERE acc.ACCOUNTNUMBER IN ('315700', '315710', '315720', '315800', '548201')
+      GROUP BY trs.MERCHANT_ACCOUNT
+              ,trs.BATCH_NUMBER
+    ) ns
+ON sr.merchant_account = ns.MERCHANT_ACCOUNT
+  AND sr.batch_number = ns.BATCH_NUMBER
+ORDER BY 1, 2;
+```
+  
+To see the differences only:
+```
+-- NetSuite transactions
+WITH NetSuiteTransactions AS (
+    SELECT trl.TRANSACTION_ID
+          ,trl.AMOUNT_FOREIGN
+          ,acc.NAME AS ACCOUNT_NAME
+          ,trs.TRANSACTION_TYPE
+          ,trs.TRANDATE AS TRANDATE
+          ,trs.ORDER_REF
+          ,trs.MERCHANT_ACCOUNT
+          ,trs.BATCH_NUMBER
+          ,sub.NAME AS SUBS_NAME
+          ,cur.SYMBOL AS CURRENCY
+    FROM [dea].[netsuite].[TRANSACTION_LINES] trl
+    LEFT JOIN [dea].[netsuite].[ACCOUNTS] acc ON acc.ACCOUNT_ID = trl.ACCOUNT_ID
+    LEFT JOIN [dea].[netsuite].[TRANSACTIONS] trs ON trs.TRANSACTION_ID = trl.TRANSACTION_ID
+    LEFT JOIN [dea].[netsuite].[SUBSIDIARIES] sub ON sub.SUBSIDIARY_ID = trl.SUBSIDIARY_ID
+    LEFT JOIN [dea].[netsuite].[CURRENCIES] cur ON cur.CURRENCY_ID = trs.CURRENCY_ID
+    WHERE acc.ACCOUNTNUMBER IN ('315700', '315710', '315720', '315800', '548201')
+),
+
+-- Settlement Reports based on CSV files, pivoting fee and net columns to PAYMENT_GATEWAY
+SettlementReports AS (
+    SELECT merchant_account AS MERCHANT_ACCOUNT
+          ,batch_number AS BATCH_NUMBER
+          ,order_ref AS ORDER_REF
+          ,payment_method AS PAYMENT_METHOD
+          ,date AS TRANDATE
+          ,type AS TRANSACTION_TYPE
+          ,currency AS CURRENCY
+          ,CONCAT('JBCZ: Receivables against ADYEN-', currency) AS ACCOUNT_NAME
+          ,net AS PAYMENT_GATEWAY
+    FROM [dbfour].[dbo].[settlement_reports]
+
+    UNION ALL
+
+    SELECT merchant_account AS MERCHANT_ACCOUNT
+          ,batch_number AS BATCH_NUMBER
+          ,order_ref AS ORDER_REF
+          ,payment_method AS PAYMENT_METHOD
+          ,date AS TRANDATE
+          ,type AS TRANSACTION_TYPE
+          ,currency AS CURRENCY
+          ,'Other operating costs' AS ACCOUNT_NAME
+          ,fee AS PAYMENT_GATEWAY
+    FROM [dbfour].[dbo].[settlement_reports]
+)
+
+-- Combine NetSuite and Settlement Report data
+SELECT COALESCE(ns.MERCHANT_ACCOUNT, sr.MERCHANT_ACCOUNT) AS MERCHANT_ACCOUNT
+      ,COALESCE(sr.BATCH_NUMBER, ns.BATCH_NUMBER) AS BATCH_NUMBER
+      ,SUM(COALESCE(ns.AMOUNT_FOREIGN, 0)) AS NETSUITE
+      ,SUM(COALESCE(sr.PAYMENT_GATEWAY, 0)) AS PAYMENT_GATEWAY
+FROM NetSuiteTransactions ns
+FULL JOIN SettlementReports sr
+    ON ns.ORDER_REF = sr.ORDER_REF
+    AND ns.TRANDATE = sr.TRANDATE -- Optional condition, can be commented out if transaction date discrepancies are not relevant
+    AND ns.ACCOUNT_NAME = sr.ACCOUNT_NAME
+    AND ns.AMOUNT_FOREIGN = sr.PAYMENT_GATEWAY
+WHERE ns.BATCH_NUMBER IS NULL OR sr.BATCH_NUMBER IS NULL
+GROUP BY COALESCE(ns.MERCHANT_ACCOUNT, sr.MERCHANT_ACCOUNT)
+        ,COALESCE(sr.BATCH_NUMBER, ns.BATCH_NUMBER)
+ORDER BY 1, 2;
+
+```
+
+Or using created table:
+```
+SELECT COALESCE(NETSUITE_MERCHANT_ACCOUNT, SETREP_MERCHANT_ACCOUNT) AS MERCHANT_ACCOUNT
+      ,COALESCE(SETREP_BATCH_NUMBER, NETSUITE_BATCH_NUMBER) AS BATCH_NUMBER
+      ,SUM(COALESCE(NETSUITE_AMOUNT_FOREIGN, 0)) AS NETSUITE
+      ,SUM(COALESCE(SETREP_PAYMENT_GATEWAY, 0)) AS PAYMENT_GATEWAY
+FROM [dbo].[netsuite_reports_diffs]
+GROUP BY COALESCE(NETSUITE_MERCHANT_ACCOUNT, SETREP_MERCHANT_ACCOUNT)
+      ,COALESCE(SETREP_BATCH_NUMBER, NETSUITE_BATCH_NUMBER)
+```
+
 
 ## Task 2: Sale analysis – revenue decline in ROW region
+The goal was to generate insight and provide explanation of revenue decline in ROW region happening in H1 for comparing Y2018 and Y2019. 
+
+**Inicial hypothesis were:**
+  - causal event - e.g. missing sources for revenue, real-world infuence - bans etc.
+  - currency devaluation
+  - Market behaviour - sales cycles, ...
+
+**Conclusion:**
+The company’s revenue metric for ROW markets was impacted by currency devaluation in relation to USD. This means that the value of USD was reduced and so convertion of local currencies to USD resulted in lower revenue metric. This is supported by the fact that actual sales volume and performance in local currencies remained strong.
+I would suggest more localized point of view into reporting these numbers. Consider supplementing USD-based reporting with local currency reports, especially for ROW teams. Use FX Rate metrics to compare yearly and cross markets revenue metrics.
+
+
 ### Workflow
-I wrote a SQL query to generate insights into the behaviour of the markets. I exported the result into CSV and used Excel with Pivot Table to investigate. I prepared a PowerBI report to visualize my findings. You can find it this repo - `RevenueAnalysis.pbix`
+I wrote a SQL query to generate insights into the behaviour of the markets. I exported the result into CSV and used Excel (Pivot Table) to investigate. I prepared a PowerBI report to visualize my findings. You can find it this repo - `RevenueAnalysis.pbix`
 
-### Assumptions:
-  I assumed with no way of checking that all relevant sources were included and data is complete. I also assumed that data correct - valid currency and rates etc.
+I assumed with no way of checking that all relevant sources were included and data is complete. I also assumed that data is correct - valid currency and reliable rates, actual prices, ...
 
-### Inital checks and questions:
+Inital checks and questions:
   - ordItm.amount_total = ordItm.price_item * ordItm.quantity
   - cou.currency = ord.currency
   - prod.price = ordItm.price
@@ -412,44 +442,38 @@ I wrote a SQL query to generate insights into the behaviour of the markets. I ex
   - price did not change during the two years
   - quantity did not dramamticcaly change during the two years
 
-### Trend and Metrics analysis:
+### Deepdive analysis:
   - H1 performance diff: ROW(2018-2019) = 4645339.045 USD, US(2018-2019) = 142896 USD
-  - monthly view:
+  - **monthly view:**
     - to identify when the ROW decline started
-    - ROW Sales significantly worse over whole H1 (diffs(2018H1-2019H1)=(708390.265, 1018517.446, 929517.9682, 979074.8374, 647085.1295, 362753.399)),
-    - ROW Jun2019 best performing Sales
-    - ROW no. of paid purchased products for 2019H1 higher than 2018H1 (is_paid = 1, SUM(quantity)), diff(2019H1-2018H1) = 4155
-    - ROW QuantityByMonth(2018-2019) = (-1612, 1797, -3062, 173, -285, -1166)
-    - US(Jan2019-Feb2019) slightly better than 2018; diffs(01to06)=(-16155, -90009, 41332, 143944, 5995, 57789)
-    - US no. of paid purchased products for 2019H1 lower than 2018H1, diff(2019H1-2018H1) = -1116
-    - US QuantityByMonth(2018-2019) = (-1023, -3186, 599, 4865, -2713, 2574)
-    - ROW Sales2018 and Sales2019 have same trends by months 
+    - ROW Sales significantly worse over whole H1 - no sudden drop, up to 8.5% monthly decrease in performance,
+    - ROW Jun2019 best performing SalesUSD
+    - ROW no. of paid purchased products for 2019H1 slightly higher than 2018H1 
+    - US Sales for Jan2019 and Feb2019 slightly better than 2018; up to 2% monthly decrease in performance
+    - US no. of paid purchased products for 2019H1 slightly lower than 2018H1
+    - ROW Sales2018 and Sales2019 have same seasonal trends 
     - monthly view doesn't suggest any causal event that would start the underperfomance 
-  - split by products:
-    - trends are across all products - it is not limited to only some products
-    - most visible ROW Sales drop for II (IntelliJ IDEA), YT (YouTrack InCloud), All (All Products Pack)
-    - as price and quantity remained the same the drop could be caused by purchasing cheaper products - refuted by exchange_rate analysis
-  - split by license_type:
+  - **split by products:**
+    - trends are visible across all products - it is not limited to only some products
+    - most noticible ROW Sales drop for II (IntelliJ IDEA), YT (YouTrack InCloud), All (All Products Pack)
+    - as price and quantity of sold products remained the same the decrease could be caused by purchasing cheaper products - choosing shorter licenses maybe
+  - **split by license_type:**
     - to see if ROW is purchasing more long-term licenses to have longer sales cycles
-    - did not provide any insight
-  - rates influence: 
+    - did not provide insight supporting any hypothesis
+  - **rates influence:** 
     - adjusting 2019 revenue as if 2018 exchange rates were in effect - fixed rate insight
     - difference in performance vanished - now it even seems like ROW performed better than US
     - reasoning: due to unfavorable exchange rate movements rather than actual sales performance
 
-### Outputs:
-  - Quantity Analysis: 
-    - no. of paid purchased products is comparable over the years 
-    - and yet ROW Sales are lower 
-    - and even for months with higher quantity sales
-    - this points to possible change in market - people are purchasing same quantity of products just cheaper ones
+### Summary:
+  - Seasonal and Trend Analysis: 
+    - no. of paid purchased products is comparable over the years for both markets- max. diviance is 2% for US, less than 1% for ROW 
+    - and yet ROW SalesUSD are more than 8% lower than previous H1 
+    - and even for months with higher quantity sales than previous year
   - Fixed Rate Analysis:
-    - using exchange-rates from 2018 revealed that there is no such drop in performance as much as drop of economy resulting in unfavourable rates
-  - Sales cycles or conversion rates may have influenced the difference in performace ROW vs. US - however not th edifferences by yearly
+    - using exchange-rates from 2018 revealed that there is no such drop in performance as much as drop of economy resulting in unfavourable rates for USD
+  - Sales cycles or conversion rates may have influenced the difference in performace ROW vs. US - but there is not enough information in the data to analyze this
 
-### Reasoning and Suggestions: 
-The company’s revenue metric for ROW markets was impacted by currency devaluation in relation to USD. This means that the value of USD was reduced and so convertion local currencies to USD resulted in lower numbers. This is supported by the fact that actual sales volume and performance in local currencies remained strong.
-I would suggest more localized point of view into reporting these numbers. Consider supplementing USD-based reporting with local currency reports, especially for ROW teams. Use FX Rate metrics to compare yearly and cross markets revenue metrics.
 
 ### SQL Query used for analysis
 All insight was generated based on this query:
