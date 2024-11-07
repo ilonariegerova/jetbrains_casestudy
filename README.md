@@ -12,24 +12,25 @@ The task was to transform given CSV files into queriable table in SQL Server and
 
 There are more ways I could think of to approach this. They differ in complexity and suitability. 
 
-1. CSV files directly in SQL Server: 
+####1. CSV files directly in SQL Server: 
   - assumption: CSV files have uniform and correct formatting - no ETL needed
   - **pros:** easiest option leveraging SQL Server Import Wizard / Bulk Insert, no scripting needed, minimal effort and setup of architecture/sw
   - **cons:** produces unnecesary amount of tables - table for each csv file which then have to be unioned onto one, no cost or optimization considered, not scalable, efficient or elegant
 
-2. CSV files in S3 + AWS Glue
+####2. CSV files in S3 + AWS Glue
   - assumption: CSV files have uniform and correct formatting, no heavy ETL needed
   - more real-case approach, usable for one-time or irregular load, small amount of data
   - **pros:** leverages AWS storage and AWS Glue functionality, Glue and Athena are cost-effective for smaller amounts of data
   - **cons:** not robust and complex enough for handling data quality, reusability or automation
 
-3. CSV files in S3 + AWS Glue + Full Scope Solution
+####3. CSV files in S3 + AWS Glue + Full Scope Solution
   - assumption: heavy ETL needed to be performed both on CSV formatting and data itself, large dataset, automatization of pipeline
   - comprehensive solution suited for regular load of big amounts of data - complex pipeline
   - princip: using AWS Glue with Python script to perform heavy ETL on the data; setting up Athena linked server to SQL Server or using Redshift; adding explicit validations, error handling and logging along the way to promote robustness, using AWS Step Functions / Airflow for orchestration 
   - **pros:** robust, scalable, reusable solution for real-case problem
   - **cons:** requires the most setup and work
 
+####Data Quality
 Data quality and validations have to be considered to make all of these options work. Let's highlight a few:
   - CSV formatting: UTF-8 encoding, LF endings, delimiter consistency
   - data handling: NULL values, duplicities, inconsistent data types
@@ -186,6 +187,7 @@ There are some missing transactions in Netsuite for `JetBrainsEUR, batch_number 
 |JetBrainsEUR|139|0|-11,529|
 |JetBrainsEUR|140|13,268,388|13,268,388|
 |JetBrainsGBP|141|0|1,021,258|
+
 
 List of all differences on transaction-level in stored in `netsuite_reports_diffs` table. It was created by following scripts:
 ```
@@ -425,6 +427,7 @@ The goal was to generate insight and provide explanation of revenue decline in R
   - Market behaviour - sales cycles, ...
 
 **Conclusion:**
+
 The company’s revenue metric for ROW markets was impacted by currency devaluation in relation to USD. This means that the value of USD was reduced and so convertion of local currencies to USD resulted in lower revenue metric. This is supported by the fact that actual sales volume and performance in local currencies remained strong.
 I would suggest more localized point of view into reporting these numbers. Consider supplementing USD-based reporting with local currency reports, especially for ROW teams. Use FX Rate metrics to compare yearly and cross markets revenue metrics.
 
@@ -434,7 +437,7 @@ I wrote a SQL query to generate insights into the behaviour of the markets. I ex
 
 I assumed with no way of checking that all relevant sources were included and data is complete. I also assumed that data is correct - valid currency and reliable rates, actual prices, ...
 
-Inital checks and questions:
+**Inital checks and questions:**
   - ordItm.amount_total = ordItm.price_item * ordItm.quantity
   - cou.currency = ord.currency
   - prod.price = ordItm.price
