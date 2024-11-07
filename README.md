@@ -12,25 +12,26 @@ The task was to transform given CSV files into queriable table in SQL Server and
 
 There are more ways I could think of to approach this. They differ in complexity and suitability. 
 
-####1. CSV files directly in SQL Server: 
+**1. CSV files directly in SQL Server:**
   - assumption: CSV files have uniform and correct formatting - no ETL needed
   - **pros:** easiest option leveraging SQL Server Import Wizard / Bulk Insert, no scripting needed, minimal effort and setup of architecture/sw
   - **cons:** produces unnecesary amount of tables - table for each csv file which then have to be unioned onto one, no cost or optimization considered, not scalable, efficient or elegant
 
-####2. CSV files in S3 + AWS Glue
+**2. CSV files in S3 + AWS Glue**
   - assumption: CSV files have uniform and correct formatting, no heavy ETL needed
   - more real-case approach, usable for one-time or irregular load, small amount of data
   - **pros:** leverages AWS storage and AWS Glue functionality, Glue and Athena are cost-effective for smaller amounts of data
   - **cons:** not robust and complex enough for handling data quality, reusability or automation
 
-####3. CSV files in S3 + AWS Glue + Full Scope Solution
+**3. CSV files in S3 + AWS Glue + Full Scope Solution**
   - assumption: heavy ETL needed to be performed both on CSV formatting and data itself, large dataset, automatization of pipeline
   - comprehensive solution suited for regular load of big amounts of data - complex pipeline
   - princip: using AWS Glue with Python script to perform heavy ETL on the data; setting up Athena linked server to SQL Server or using Redshift; adding explicit validations, error handling and logging along the way to promote robustness, using AWS Step Functions / Airflow for orchestration 
   - **pros:** robust, scalable, reusable solution for real-case problem
   - **cons:** requires the most setup and work
 
-####Data Quality
+### Data Quality
+
 Data quality and validations have to be considered to make all of these options work. Let's highlight a few:
   - CSV formatting: UTF-8 encoding, LF endings, delimiter consistency
   - data handling: NULL values, duplicities, inconsistent data types
